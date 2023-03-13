@@ -8,18 +8,63 @@ using UnityEngine.Assertions;
 
 public class AnimationBakerEditor : EditorWindow
 {
-    private bool relative = false;
-    private SkinnedMeshRenderer skinnedMeshRenderer;
+    private bool relative = true;
+    private bool createPrefab = false;
+    private SkinnedMeshRenderer skinnedMeshRenderer
+    {
+        get
+        {
+            return _skinnedMeshRenderer;
+        }
+        set
+        {
+            if (value != null && _skinnedMeshRenderer != value)
+            {
+                animationClips.Clear();
+                var clips = GetAnimationClips(value, out animGO);
+                if (clips != null && clips.Length > 0)
+                    animationClips.AddRange(clips);
+            }
+            _skinnedMeshRenderer = value;
+        }
+    }
+    private SkinnedMeshRenderer _skinnedMeshRenderer;
     private ComputeShader infoTexGen;
     private Shader playShader;
     private string folderName = "BakedAnimationTex";
-    private Animator animator;
+    private GameObject animGO;
+    private GenerateType generateType;
+    private List<AnimationClip> animationClips = new List<AnimationClip>();
+
+    public enum GenerateType
+    {
+        None = 0,
+        MeshRenderer,
+        ParticleSystem,
+    }
 
     private struct VertInfo
     {
         public Vector3 position;
         public Vector3 normal;
         public Vector3 tangent;
+    }
+
+    private void OnEnable()
+    {
+        if (infoTexGen == null)
+        {
+            var computeShaders = AssetDatabase.FindAssets("MeshInfoTextureGen");
+            if (computeShaders.Length > 0)
+                infoTexGen = AssetDatabase.LoadAssetAtPath<ComputeShader>(AssetDatabase.GUIDToAssetPath(computeShaders[0]));
+        }
+
+        if (playShader == null)
+        {
+            var vertexAnimTexShader = Shader.Find("VertexAnimationTexture");
+            if (vertexAnimTexShader)
+                playShader = vertexAnimTexShader;
+        }
     }
 
     [MenuItem("Tools/SS/Animation Baker")]
@@ -35,25 +80,126 @@ public class AnimationBakerEditor : EditorWindow
         skinnedMeshRenderer = (SkinnedMeshRenderer)EditorGUILayout.ObjectField("Skinned Mesh Renderer", skinnedMeshRenderer, typeof(SkinnedMeshRenderer), true);
         if (EditorGUI.EndChangeCheck() && skinnedMeshRenderer)
         {
-            animator = skinnedMeshRenderer.GetComponentInParent<Animator>();
         }
         GUI.enabled = false;
-        EditorGUILayout.ObjectField("Animator", animator, typeof(Animator), true);
+        EditorGUILayout.ObjectField("Anim GameObject", animGO, typeof(GameObject), true);
         GUI.enabled = true;
         infoTexGen = (ComputeShader)EditorGUILayout.ObjectField("Compute Shader", infoTexGen, typeof(ComputeShader), false);
         playShader = (Shader)EditorGUILayout.ObjectField("Visual Shader", playShader, typeof(Shader), false);
         relative = EditorGUILayout.Toggle("Relative", relative);
+        createPrefab = EditorGUILayout.Toggle("Create Prefab", createPrefab);
+        generateType = (GenerateType)EditorGUILayout.EnumPopup("Generate", generateType);
         folderName = EditorGUILayout.TextField("Folder Name", folderName);
-        if (animator)
-            EditorGUILayout.LabelField($"Output: {folderName}/{animator.name}/");
+        if (animGO)
+            EditorGUILayout.HelpBox($"Output: {folderName}/{animGO.name}/", MessageType.Info);
 
-        if (GUILayout.Button("Bake"))
+        if (animationClips.Count > 0)
         {
-            AnimationBake(skinnedMeshRenderer, infoTexGen, playShader, relative, folderName);
+            EditorGUILayout.BeginVertical(new GUIStyle("Box"));
+            foreach (var clip in animationClips)
+            {
+                if (GUILayout.Button($"Bake {clip.name}"))
+                {
+                    AnimationBake(skinnedMeshRenderer, infoTexGen, playShader, relative, generateType, clip, folderName, createPrefab);
+                }
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        if (GUILayout.Button("Bake All"))
+        {
+            AnimationBake(skinnedMeshRenderer, infoTexGen, playShader, relative, generateType, null, folderName, createPrefab);
         }
     }
 
-    private static void AnimationBake(SkinnedMeshRenderer skinnedMeshRenderer, ComputeShader infoTexGen, Shader playShader, bool relative, string folderName = null)
+    private void OnSelectionChange()
+    {
+        var go = Selection.activeGameObject;
+        if (go)
+        {
+            var skin = go.GetComponentInChildren<SkinnedMeshRenderer>();
+            if (skin)
+            {
+                skinnedMeshRenderer = skin;
+            }
+        }
+    }
+
+    private static AnimationClip[] GetAnimationClips(Component component, out GameObject go)
+    {
+        AnimationClip[] clips = null;
+        var animator = component.GetComponentInParent<Animator>();
+        go = component.gameObject;
+
+        if (animator && animator.runtimeAnimatorController)
+        {
+            clips = animator.runtimeAnimatorController.animationClips;
+            go = animator.gameObject;
+        }
+        else
+        {
+            var animation = component.GetComponentInParent<Animation>();
+            if (animation)
+            {
+                clips = new AnimationClip[animation.GetClipCount()];
+                int i = 0;
+                foreach (AnimationState state in animation)
+                {
+                    clips[i] = state.clip;
+                    i++;
+                }
+                go = animation.gameObject;
+            }
+        }
+        return clips;
+    }
+
+    public static Vector3 ExtractTranslationFromMatrix(ref Matrix4x4 matrix)
+    {
+        Vector3 translate;
+        translate.x = matrix.m03;
+        translate.y = matrix.m13;
+        translate.z = matrix.m23;
+        return translate;
+    }
+    public static Quaternion ExtractRotationFromMatrix(ref Matrix4x4 matrix)
+    {
+        Vector3 forward;
+        forward.x = matrix.m02;
+        forward.y = matrix.m12;
+        forward.z = matrix.m22;
+
+        Vector3 upwards;
+        upwards.x = matrix.m01;
+        upwards.y = matrix.m11;
+        upwards.z = matrix.m21;
+
+        return Quaternion.LookRotation(forward, upwards);
+    }
+    public static Vector3 ExtractScaleFromMatrix(ref Matrix4x4 matrix)
+    {
+        Vector3 scale;
+        scale.x = new Vector4(matrix.m00, matrix.m10, matrix.m20, matrix.m30).magnitude;
+        scale.y = new Vector4(matrix.m01, matrix.m11, matrix.m21, matrix.m31).magnitude;
+        scale.z = new Vector4(matrix.m02, matrix.m12, matrix.m22, matrix.m32).magnitude;
+        return scale;
+    }
+
+    private static void ResetBindPose(SkinnedMeshRenderer skinnedMeshRenderer)
+    {
+        for (var i = 0; i < skinnedMeshRenderer.bones.Length; i++)
+        {
+            var matrix = skinnedMeshRenderer.sharedMesh.bindposes[i].inverse;
+
+            var bt = skinnedMeshRenderer.bones[i];
+            bt.position = ExtractTranslationFromMatrix(ref matrix);
+            bt.rotation = ExtractRotationFromMatrix(ref matrix);
+            bt.localScale = ExtractScaleFromMatrix(ref matrix);
+        }
+
+    }
+
+    private static void AnimationBake(SkinnedMeshRenderer skinnedMeshRenderer, ComputeShader infoTexGen, Shader playShader, bool relative, GenerateType generateType, AnimationClip clip = null, string folderName = null, bool createPrefab = false)
     {
         Assert.IsNotNull(infoTexGen, "Missing Compute Shader");
         Assert.IsNotNull(playShader, "Missing Shader");
@@ -62,17 +208,18 @@ public class AnimationBakerEditor : EditorWindow
         if (!skin || !infoTexGen || !playShader)
             return;
 
-        var animator = skin.GetComponentInParent<Animator>();
+        // Get clips
+        GameObject animGO = null;
+        AnimationClip[] clips = GetAnimationClips(skin, out animGO);
 
-        Assert.IsNotNull(animator, "Missing Animator");
-        if (!animator || !animator.runtimeAnimatorController)
+        if (animGO == null || clips == null || clips.Length == 0)
             return;
 
         EditorUtility.DisplayProgressBar("Baking", "", 0);
 
-        var name = animator.name;
-        var clips = animator.runtimeAnimatorController.animationClips;
+        ResetBindPose(skin);
 
+        var name = animGO.name;
         var origMesh = skin.sharedMesh;
         var vCount = origMesh.vertexCount;
         var texWidth = Mathf.NextPowerOfTwo(vCount);
@@ -80,10 +227,13 @@ public class AnimationBakerEditor : EditorWindow
 
         bool isCanceled = false;
 
-        animator.speed = 0;
+        //animator.speed = 0;
         for (var j = 0; j < clips.Length; j++)
         {
             var c = clips[j];
+            if (clip != null && c != clip)
+                continue;
+
             if (!isCanceled && EditorUtility.DisplayCancelableProgressBar("Baking", c.name, (float)(j) / clips.Length))
             {
                 isCanceled = true;
@@ -126,7 +276,7 @@ public class AnimationBakerEditor : EditorWindow
                     break;
                 }
 
-                AnimationMode.SampleAnimationClip(animator.gameObject, c, (float)i / fps);
+                AnimationMode.SampleAnimationClip(animGO, c, (float)i / fps);
                 //animator.Play(c.name, 0, (float)i / frames);
 
                 skin.BakeMesh(mesh);
@@ -160,8 +310,7 @@ public class AnimationBakerEditor : EditorWindow
 
             if (isCanceled)
             {
-                EditorUtility.ClearProgressBar();
-                return;
+                break;
             }
 
             var buffer = new ComputeBuffer(infoList.Count, System.Runtime.InteropServices.Marshal.SizeOf(typeof(VertInfo)));
@@ -208,23 +357,65 @@ public class AnimationBakerEditor : EditorWindow
                 mat.SetFloat("_Loop", 1f);
                 mat.EnableKeyword("ANIM_LOOP");
             }
+            if (generateType.Equals(GenerateType.ParticleSystem))
+            {
+                mat.SetInt("_Particle", 1);
+            }
 
-            var go = new GameObject(name + "." + c.name);
-            go.AddComponent<MeshRenderer>().sharedMaterial = mat;
-            go.AddComponent<MeshFilter>().sharedMesh = skin.sharedMesh;
+            GameObject go = (generateType == GenerateType.None)? null: new GameObject(name + "." + c.name);
+            switch (generateType)
+            {
+                case GenerateType.MeshRenderer:
+                    go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                    go.AddComponent<MeshFilter>().sharedMesh = skin.sharedMesh;
+                    break;
+                case GenerateType.ParticleSystem:
+                    {
+                        var ps = go.AddComponent<ParticleSystem>();
+                        var main = ps.main;
+                        main.maxParticles = 2;
+                        main.startRotation3D = true;
+                        var rotX = main.startRotationX;
+                        var rotY = main.startRotationY;
+                        var rotZ = main.startRotationZ;
+                        rotX.constantMin = 0; rotX.constantMax = 360;
+                        rotY.constantMin = 0; rotY.constantMax = 360;
+                        rotZ.constantMin = 0; rotZ.constantMax = 360;
+                        var psr = go.GetComponent<ParticleSystemRenderer>();
+                        psr.renderMode = ParticleSystemRenderMode.Mesh;
+                        psr.mesh = skin.sharedMesh;
+                        psr.alignment = ParticleSystemRenderSpace.World;
+                        psr.material = mat;
+                        var vs = new List<ParticleSystemVertexStream>();
+                        vs.Add(ParticleSystemVertexStream.Position);
+                        vs.Add(ParticleSystemVertexStream.Normal);
+                        vs.Add(ParticleSystemVertexStream.Color);
+                        vs.Add(ParticleSystemVertexStream.UV);
+                        vs.Add(ParticleSystemVertexStream.Rotation3D);
+                        vs.Add(ParticleSystemVertexStream.VertexID);
+                        psr.SetActiveVertexStreams(vs);
+                    }
+                    break;
+            }
 
             AssetDatabase.CreateAsset(posTex, Path.Combine(subFolderPath, pRt.name + ".asset"));
             AssetDatabase.CreateAsset(normTex, Path.Combine(subFolderPath, nRt.name + ".asset"));
             AssetDatabase.CreateAsset(tanTex, Path.Combine(subFolderPath, tRt.name + ".asset"));
             AssetDatabase.CreateAsset(mat, Path.Combine(subFolderPath, string.Format("{0}.{1}.animTex.asset", name, c.name)));
 
-            //PrefabUtility.CreatePrefab(Path.Combine(folderPath, go.name + ".prefab").Replace("\\", "/"), go);
-            PrefabUtility.SaveAsPrefabAsset(go, Path.Combine(folderPath, go.name + ".prefab").Replace("\\", "/"));
+            if (go && createPrefab)
+            {
+                //PrefabUtility.CreatePrefab(Path.Combine(folderPath, go.name + ".prefab").Replace("\\", "/"), go);
+                PrefabUtility.SaveAsPrefabAssetAndConnect(go, Path.Combine(folderPath, go.name + ".prefab").Replace("\\", "/"), InteractionMode.AutomatedAction);
+            }
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-
-            EditorUtility.ClearProgressBar();
         }
+
+
+        ResetBindPose(skin);
+
+        EditorUtility.ClearProgressBar();
     }
 }
