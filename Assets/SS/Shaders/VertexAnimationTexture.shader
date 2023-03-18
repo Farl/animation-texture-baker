@@ -12,7 +12,7 @@ Shader "VertexAnimationTexture"
 		_MainTex("Main Tex", 2D) = "white" {}
 		[Toggle(_PARTICLE_ON)] _Particle("Particle", Float) = 0
 		[Toggle(ANIM_LOOP)] _Loop("Loop", Float) = 1
-		[Toggle(AutoPlay)] _AutoPlay("Auto Play", Float) = 1
+		[Toggle(_AUTO_PLAY)] _AutoPlay("Auto Play", Float) = 1
 		[ASEEnd]_DT("Time Offset", Float) = 0
 		[HideInInspector] _texcoord( "", 2D ) = "white" {}
 
@@ -241,7 +241,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -327,23 +327,30 @@ Shader "VertexAnimationTexture"
 			//#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/VisualEffectVertex.hlsl"
 			//#endif
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -366,7 +373,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -383,19 +390,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.texcoord;
 				texCoord33.xy = v.texcoord.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -859,7 +865,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -934,23 +940,30 @@ Shader "VertexAnimationTexture"
 			//#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/VisualEffectVertex.hlsl"
 			//#endif
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -976,7 +989,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -993,19 +1006,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.ase_texcoord;
 				texCoord33.xy = v.ase_texcoord.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.ase_texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -1246,7 +1258,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -1321,23 +1333,30 @@ Shader "VertexAnimationTexture"
 			//#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/VisualEffectVertex.hlsl"
 			//#endif
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -1360,7 +1379,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -1377,19 +1396,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.ase_texcoord;
 				texCoord33.xy = v.ase_texcoord.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.ase_texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -1608,7 +1626,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -1689,23 +1707,30 @@ Shader "VertexAnimationTexture"
 			//#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/VisualEffectVertex.hlsl"
 			//#endif
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -1728,7 +1753,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -1745,19 +1770,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.texcoord0;
 				texCoord33.xy = v.texcoord0.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -1979,7 +2003,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -2055,23 +2079,30 @@ Shader "VertexAnimationTexture"
 			//#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/VisualEffectVertex.hlsl"
 			//#endif
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -2094,7 +2125,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -2111,19 +2142,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.ase_texcoord;
 				texCoord33.xy = v.ase_texcoord.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.ase_texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -2329,7 +2359,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -2407,23 +2437,30 @@ Shader "VertexAnimationTexture"
 			//#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/VisualEffectVertex.hlsl"
 			//#endif
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -2446,7 +2483,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -2463,19 +2500,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.ase_texcoord;
 				texCoord33.xy = v.ase_texcoord.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.ase_texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -2754,7 +2790,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -2837,23 +2873,30 @@ Shader "VertexAnimationTexture"
 			#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/UnityGBuffer.hlsl"
 			//#include "Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/Includes/PBRGBufferPass.hlsl"
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -2876,7 +2919,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -2893,19 +2936,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.texcoord;
 				texCoord33.xy = v.texcoord.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -3269,7 +3311,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -3338,23 +3380,30 @@ Shader "VertexAnimationTexture"
 			//#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/VisualEffectVertex.hlsl"
 			//#endif
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -3385,7 +3434,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -3402,19 +3451,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.ase_texcoord;
 				texCoord33.xy = v.ase_texcoord.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.ase_texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -3598,7 +3646,7 @@ Shader "VertexAnimationTexture"
 			#define ASE_NEEDS_VERT_NORMAL
 			#pragma shader_feature_local _PARTICLE_ON
 			#pragma shader_feature_local ANIM_LOOP
-			#pragma shader_feature_local AutoPlay
+			#pragma shader_feature_local _AUTO_PLAY
 
 
 			struct VertexInput
@@ -3667,23 +3715,30 @@ Shader "VertexAnimationTexture"
 			//#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/VisualEffectVertex.hlsl"
 			//#endif
 
-			float3 RotateAroundAxis( float3 center, float3 original, float3 u, float angle )
+			float3x3 EulerToMatrix76( float3 eul )
 			{
-				original -= center;
-				float C = cos( angle );
-				float S = sin( angle );
-				float t = 1 - C;
-				float m00 = t * u.x * u.x + C;
-				float m01 = t * u.x * u.y - S * u.z;
-				float m02 = t * u.x * u.z + S * u.y;
-				float m10 = t * u.x * u.y + S * u.z;
-				float m11 = t * u.y * u.y + C;
-				float m12 = t * u.y * u.z - S * u.x;
-				float m20 = t * u.x * u.z - S * u.y;
-				float m21 = t * u.y * u.z + S * u.x;
-				float m22 = t * u.z * u.z + C;
-				float3x3 finalMatrix = float3x3( m00, m01, m02, m10, m11, m12, m20, m21, m22 );
-				return mul( finalMatrix, original ) + center;
+				  // 計算三個軸的旋轉角度的cos和sin值
+				  float3 c = cos(eul);
+				  float3 s = sin(eul);
+				  // 分別計算三個軸的旋轉矩陣
+				  float3x3 rotx = float3x3(
+				    1.0f, 0.0f, 0.0f,
+				    0.0f, c.x, -s.x,
+				    0.0f, s.x, c.x
+				    );
+				  
+				  float3x3 roty = float3x3(
+				    c.y, 0.0f, s.y,
+				    0.0f, 1.0f, 0.0f,
+				    -s.y, 0.0f ,c.y
+				    );
+				   float3x3 rotz = float3x3(
+				     c.z , -s.z , 0.0f ,
+				     s.z , c.z , 0.0f ,
+				     0.0f , 0.0f ,1.00 
+				     );
+				   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘
+				   return mul(roty , mul(rotx , rotz));
 			}
 			
 			real4 ASESafeNormalize(float4 inVec)
@@ -3714,7 +3769,7 @@ Shader "VertexAnimationTexture"
 				#else
 				float staticSwitch71 = (float)v.ase_vertexID;
 				#endif
-				#ifdef AutoPlay
+				#ifdef _AUTO_PLAY
 				float staticSwitch75 = _TimeParameters.x;
 				#else
 				float staticSwitch75 = 0.0;
@@ -3731,19 +3786,18 @@ Shader "VertexAnimationTexture"
 				float4 texCoord33 = v.ase_texcoord;
 				texCoord33.xy = v.ase_texcoord.xy * float2( 1,1 ) + float2( 0,0 );
 				float2 texCoord34 = v.ase_texcoord1.xy * float2( 1,1 ) + float2( 0,0 );
-				float3 rotatedValue32 = RotateAroundAxis( float3( 0,0,0 ), posDiff35.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
-				float3 rotatedValue30 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue32, normalize( float3( 1,0,0 ) ), texCoord33.z );
-				float3 rotatedValue31 = RotateAroundAxis( float3( 0,0,0 ), rotatedValue30, normalize( float3( 0,1,0 ) ), texCoord33.w );
+				float3 appendResult77 = (float3(texCoord33.z , texCoord33.w , texCoord34.x));
+				float3 eul76 = appendResult77;
+				float3x3 localEulerToMatrix76 = EulerToMatrix76( eul76 );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch39 = float4( rotatedValue31 , 0.0 );
+				float4 staticSwitch39 = float4( mul( localEulerToMatrix76, posDiff35.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch39 = posDiff35;
 				#endif
 				
 				float4 nmlDiff43 = tex2Dlod( _NmlTex, float4( sampleUV41, 0, 0.0) );
-				float3 rotatedValue50 = RotateAroundAxis( float3( 0,0,0 ), nmlDiff43.rgb, normalize( float3( 0,0,1 ) ), texCoord34.x );
 				#ifdef _PARTICLE_ON
-				float4 staticSwitch45 = float4( rotatedValue50 , 0.0 );
+				float4 staticSwitch45 = float4( mul( localEulerToMatrix76, nmlDiff43.rgb ) , 0.0 );
 				#else
 				float4 staticSwitch45 = nmlDiff43;
 				#endif
@@ -3901,22 +3955,8 @@ Shader "VertexAnimationTexture"
 /*ASEBEGIN
 Version=19105
 Node;AmplifyShaderEditor.CommentaryNode;53;-558.5831,-1163.175;Inherit;False;1815.793;660.2543;;18;41;21;22;73;72;18;14;71;70;68;69;40;19;20;15;17;16;75;Animation Texture UV;1,1,1,1;0;0
-Node;AmplifyShaderEditor.CommentaryNode;37;-92.01688,419.9006;Inherit;False;370.0905;549.1714;ZXY;3;31;32;30;;1,1,1,1;0;0
-Node;AmplifyShaderEditor.StaticSwitch;39;513.3524,151.7929;Inherit;False;Property;_Particle;Particle;4;0;Create;True;0;0;0;False;0;False;0;0;0;True;;Toggle;2;Key0;Key1;Create;True;True;All;9;1;COLOR;0,0,0,0;False;0;COLOR;0,0,0,0;False;2;COLOR;0,0,0,0;False;3;COLOR;0,0,0,0;False;4;COLOR;0,0,0,0;False;5;COLOR;0,0,0,0;False;6;COLOR;0,0,0,0;False;7;COLOR;0,0,0,0;False;8;COLOR;0,0,0,0;False;1;COLOR;0
-Node;AmplifyShaderEditor.TextureCoordinatesNode;33;-647.3768,477.312;Inherit;False;0;-1;4;3;2;SAMPLER2D;;False;0;FLOAT2;1,1;False;1;FLOAT2;0,0;False;5;FLOAT4;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
-Node;AmplifyShaderEditor.TextureCoordinatesNode;34;-645.5967,667.812;Inherit;False;1;-1;2;3;2;SAMPLER2D;;False;0;FLOAT2;1,1;False;1;FLOAT2;0,0;False;5;FLOAT2;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
-Node;AmplifyShaderEditor.RotateAboutAxisNode;31;-42.01688,629.0718;Inherit;False;True;4;0;FLOAT3;0,1,0;False;1;FLOAT;0;False;2;FLOAT3;0,0,0;False;3;FLOAT3;0,0,0;False;1;FLOAT3;0
-Node;AmplifyShaderEditor.RotateAboutAxisNode;32;-42.01688,790.0718;Inherit;False;True;4;0;FLOAT3;0,0,1;False;1;FLOAT;0;False;2;FLOAT3;0,0,0;False;3;FLOAT3;0,0,0;False;1;FLOAT3;0
-Node;AmplifyShaderEditor.RotateAboutAxisNode;30;-41.92638,469.9006;Inherit;False;True;4;0;FLOAT3;1,0,0;False;1;FLOAT;0;False;2;FLOAT3;0,0,0;False;3;FLOAT3;0,0,0;False;1;FLOAT3;0
-Node;AmplifyShaderEditor.CommentaryNode;48;-94.01252,1022.947;Inherit;False;370.0905;549.1714;ZXY;3;51;50;49;;1,1,1,1;0;0
-Node;AmplifyShaderEditor.RotateAboutAxisNode;49;-44.01251,1232.118;Inherit;False;True;4;0;FLOAT3;0,1,0;False;1;FLOAT;0;False;2;FLOAT3;0,0,0;False;3;FLOAT3;0,0,0;False;1;FLOAT3;0
-Node;AmplifyShaderEditor.RotateAboutAxisNode;51;-43.92201,1072.947;Inherit;False;True;4;0;FLOAT3;1,0,0;False;1;FLOAT;0;False;2;FLOAT3;0,0,0;False;3;FLOAT3;0,0,0;False;1;FLOAT3;0
-Node;AmplifyShaderEditor.GetLocalVarNode;36;-322.9697,865.8876;Inherit;False;35;posDiff;1;0;OBJECT;;False;1;COLOR;0
-Node;AmplifyShaderEditor.RotateAboutAxisNode;50;-44.01251,1393.118;Inherit;False;True;4;0;FLOAT3;0,0,1;False;1;FLOAT;0;False;2;FLOAT3;0,0,0;False;3;FLOAT3;0,0,0;False;1;FLOAT3;0
-Node;AmplifyShaderEditor.GetLocalVarNode;42;-322.9613,171.0744;Inherit;False;41;sampleUV;1;0;OBJECT;;False;1;FLOAT2;0
 Node;AmplifyShaderEditor.SimpleMultiplyOpNode;17;328.5611,-943.3719;Inherit;False;2;2;0;FLOAT;0;False;1;FLOAT;0;False;1;FLOAT;0
 Node;AmplifyShaderEditor.SimpleAddOpNode;15;197.5836,-1073.448;Inherit;False;2;2;0;FLOAT;0;False;1;FLOAT;5;False;1;FLOAT;0
-Node;AmplifyShaderEditor.GetLocalVarNode;52;-336.7234,1456.704;Inherit;False;43;nmlDiff;1;0;OBJECT;;False;1;COLOR;0
 Node;AmplifyShaderEditor.TemplateMultiPassMasterNode;54;1102.852,5.622993;Float;False;False;-1;2;UnityEditor.ShaderGraphLitGUI;0;1;New Amplify Shader;94348b07e5e8bab40bd6c8a1e3df54cd;True;ExtraPrePass;0;0;ExtraPrePass;5;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;True;0;False;;False;False;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;4;RenderPipeline=UniversalPipeline;RenderType=Opaque=RenderType;Queue=Geometry=Queue=0;UniversalMaterialType=Lit;True;3;True;12;all;0;False;True;1;1;False;;0;False;;0;1;False;;0;False;;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;True;True;True;True;True;0;False;;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;0;False;False;0;;0;0;Standard;0;False;0
 Node;AmplifyShaderEditor.TemplateMultiPassMasterNode;56;1102.852,5.622993;Float;False;False;-1;2;UnityEditor.ShaderGraphLitGUI;0;1;New Amplify Shader;94348b07e5e8bab40bd6c8a1e3df54cd;True;ShadowCaster;0;2;ShadowCaster;0;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;True;0;False;;False;False;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;4;RenderPipeline=UniversalPipeline;RenderType=Opaque=RenderType;Queue=Geometry=Queue=0;UniversalMaterialType=Lit;True;3;True;12;all;0;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;False;False;True;False;False;False;False;0;False;;False;False;False;False;False;False;False;False;False;True;1;False;;True;3;False;;False;True;1;LightMode=ShadowCaster;False;False;0;;0;0;Standard;0;False;0
 Node;AmplifyShaderEditor.TemplateMultiPassMasterNode;57;1102.852,5.622993;Float;False;False;-1;2;UnityEditor.ShaderGraphLitGUI;0;1;New Amplify Shader;94348b07e5e8bab40bd6c8a1e3df54cd;True;DepthOnly;0;3;DepthOnly;0;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;True;0;False;;False;False;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;4;RenderPipeline=UniversalPipeline;RenderType=Opaque=RenderType;Queue=Geometry=Queue=0;UniversalMaterialType=Lit;True;3;True;12;all;0;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;False;False;True;False;False;False;False;0;False;;False;False;False;False;False;False;False;False;False;True;1;False;;False;False;True;1;LightMode=DepthOnly;False;False;0;;0;0;Standard;0;False;0
@@ -3926,52 +3966,46 @@ Node;AmplifyShaderEditor.TemplateMultiPassMasterNode;60;1102.852,5.622993;Float;
 Node;AmplifyShaderEditor.TemplateMultiPassMasterNode;61;1102.852,5.622993;Float;False;False;-1;2;UnityEditor.ShaderGraphLitGUI;0;1;New Amplify Shader;94348b07e5e8bab40bd6c8a1e3df54cd;True;GBuffer;0;7;GBuffer;0;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;True;0;False;;False;False;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;4;RenderPipeline=UniversalPipeline;RenderType=Opaque=RenderType;Queue=Geometry=Queue=0;UniversalMaterialType=Lit;True;3;True;12;all;0;False;True;1;1;False;;0;False;;1;1;False;;0;False;;False;False;False;False;False;False;False;False;False;False;False;False;False;False;True;True;True;True;True;0;False;;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;1;LightMode=UniversalGBuffer;False;False;0;;0;0;Standard;0;False;0
 Node;AmplifyShaderEditor.TemplateMultiPassMasterNode;62;1102.852,5.622993;Float;False;False;-1;2;UnityEditor.ShaderGraphLitGUI;0;1;New Amplify Shader;94348b07e5e8bab40bd6c8a1e3df54cd;True;SceneSelectionPass;0;8;SceneSelectionPass;0;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;True;0;False;;False;False;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;4;RenderPipeline=UniversalPipeline;RenderType=Opaque=RenderType;Queue=Geometry=Queue=0;UniversalMaterialType=Lit;True;3;True;12;all;0;False;False;False;False;False;False;False;False;False;False;False;False;False;False;True;2;False;;False;False;False;False;False;False;False;False;False;False;False;False;False;False;True;1;LightMode=SceneSelectionPass;False;False;0;;0;0;Standard;0;False;0
 Node;AmplifyShaderEditor.TemplateMultiPassMasterNode;63;1102.852,5.622993;Float;False;False;-1;2;UnityEditor.ShaderGraphLitGUI;0;1;New Amplify Shader;94348b07e5e8bab40bd6c8a1e3df54cd;True;ScenePickingPass;0;9;ScenePickingPass;0;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;True;0;False;;False;False;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;4;RenderPipeline=UniversalPipeline;RenderType=Opaque=RenderType;Queue=Geometry=Queue=0;UniversalMaterialType=Lit;True;3;True;12;all;0;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;False;True;1;LightMode=Picking;False;False;0;;0;0;Standard;0;False;0
-Node;AmplifyShaderEditor.RegisterLocalVarNode;43;257.2684,226.3075;Inherit;False;nmlDiff;-1;True;1;0;COLOR;0,0,0,0;False;1;COLOR;0
-Node;AmplifyShaderEditor.RegisterLocalVarNode;35;269.1987,6.910341;Inherit;False;posDiff;-1;True;1;0;COLOR;0,0,0,0;False;1;COLOR;0
 Node;AmplifyShaderEditor.SimpleAddOpNode;65;755.2874,589.847;Inherit;False;2;2;0;COLOR;0,0,0,0;False;1;FLOAT3;0,0,0;False;1;COLOR;0
 Node;AmplifyShaderEditor.NormalVertexDataNode;66;542.0786,656.2563;Inherit;False;0;5;FLOAT3;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
 Node;AmplifyShaderEditor.NormalizeNode;64;889.8536,589.8469;Inherit;False;True;1;0;COLOR;0,0,0,0;False;1;COLOR;0
 Node;AmplifyShaderEditor.TemplateMultiPassMasterNode;55;1100.779,5.622993;Float;False;True;-1;2;UnityEditor.ShaderGraphLitGUI;0;12;VertexAnimationTexture;94348b07e5e8bab40bd6c8a1e3df54cd;True;Forward;0;1;Forward;19;False;False;False;False;False;False;False;False;False;False;False;False;True;0;False;;False;True;0;False;;False;False;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;4;RenderPipeline=UniversalPipeline;RenderType=Opaque=RenderType;Queue=Geometry=Queue=0;UniversalMaterialType=Lit;True;3;True;12;all;0;False;True;1;1;False;;0;False;;1;1;False;;0;False;;False;False;False;False;False;False;False;False;False;False;False;False;False;False;True;True;True;True;True;0;False;;False;False;False;False;False;False;False;True;False;0;False;;255;False;;255;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;0;False;;False;True;1;False;;True;3;False;;True;True;0;False;;0;False;;True;1;LightMode=UniversalForward;False;False;0;;0;0;Standard;41;Workflow;1;0;Surface;0;0;  Refraction Model;0;0;  Blend;0;0;Two Sided;1;0;Fragment Normal Space,InvertActionOnDeselection;0;0;Forward Only;0;0;Transmission;0;0;  Transmission Shadow;0.5,False,;0;Translucency;0;0;  Translucency Strength;1,False,;0;  Normal Distortion;0.5,False,;0;  Scattering;2,False,;0;  Direct;0.9,False,;0;  Ambient;0.1,False,;0;  Shadow;0.5,False,;0;Cast Shadows;1;0;  Use Shadow Threshold;0;0;Receive Shadows;1;0;GPU Instancing;1;638143182465968910;LOD CrossFade;1;0;Built-in Fog;1;0;_FinalColorxAlpha;0;0;Meta Pass;1;0;Override Baked GI;0;0;Extra Pre Pass;0;0;DOTS Instancing;0;0;Tessellation;0;0;  Phong;0;0;  Strength;0.5,False,;0;  Type;0;0;  Tess;16,False,;0;  Min;10,False,;0;  Max;25,False,;0;  Edge Length;16,False,;0;  Max Displacement;25,False,;0;Write Depth;0;638143149768388060;  Early Z;0;0;Vertex Position,InvertActionOnDeselection;1;638143131254812130;Debug Display;0;0;Clear Coat;0;0;0;10;False;True;True;True;True;True;True;True;True;True;False;;False;0
 Node;AmplifyShaderEditor.StaticSwitch;45;536.9281,526.296;Inherit;False;Property;_Particle;Particle;4;0;Create;False;0;0;0;False;0;False;0;0;0;True;_PARTICLE_ON;Toggle;2;Key0;Key1;Reference;39;True;True;All;9;1;COLOR;0,0,0,0;False;0;COLOR;0,0,0,0;False;2;COLOR;0,0,0,0;False;3;COLOR;0,0,0,0;False;4;COLOR;0,0,0,0;False;5;COLOR;0,0,0,0;False;6;COLOR;0,0,0,0;False;7;COLOR;0,0,0,0;False;8;COLOR;0,0,0,0;False;1;COLOR;0
 Node;AmplifyShaderEditor.TextureCoordinatesNode;70;-444.9281,-1108.643;Inherit;False;1;-1;2;3;2;SAMPLER2D;;False;0;FLOAT2;1,1;False;1;FLOAT2;0,0;False;5;FLOAT2;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
-Node;AmplifyShaderEditor.StaticSwitch;71;-38.99004,-1112.109;Inherit;False;Property;_Particle1;Particle;4;0;Create;False;0;0;0;False;0;False;0;0;0;True;_PARTICLE_ON;Toggle;2;Key0;Key1;Reference;39;True;True;All;9;1;FLOAT;0;False;0;FLOAT;0;False;2;FLOAT;0;False;3;FLOAT;0;False;4;FLOAT;0;False;5;FLOAT;0;False;6;FLOAT;0;False;7;FLOAT;0;False;8;FLOAT;0;False;1;FLOAT;0
 Node;AmplifyShaderEditor.VertexIdVariableNode;14;-221.9852,-1112.291;Inherit;False;0;1;INT;0
 Node;AmplifyShaderEditor.RangedFloatNode;22;-11.37346,-1013.836;Inherit;False;Constant;_zerofive;zerofive;2;0;Create;True;0;0;0;False;0;False;0.5;0;0;0;0;1;FLOAT;0
 Node;AmplifyShaderEditor.DynamicAppendNode;21;840.1913,-841.546;Inherit;False;FLOAT2;4;0;FLOAT;0;False;1;FLOAT;0;False;2;FLOAT;0;False;3;FLOAT;0;False;1;FLOAT2;0
 Node;AmplifyShaderEditor.RegisterLocalVarNode;41;994.3284,-847.0845;Inherit;False;sampleUV;-1;True;1;0;FLOAT2;0,0;False;1;FLOAT2;0
 Node;AmplifyShaderEditor.SaturateNode;69;297.2917,-729.1646;Inherit;False;1;0;FLOAT;0;False;1;FLOAT;0
 Node;AmplifyShaderEditor.FmodOpNode;68;302.6136,-645.4288;Inherit;False;2;0;FLOAT;0;False;1;FLOAT;1;False;1;FLOAT;0
-Node;AmplifyShaderEditor.StaticSwitch;40;510.5131,-729.9547;Inherit;False;Property;_Loop;Loop;5;0;Create;False;0;0;0;False;0;False;0;1;1;True;ANIM_LOOP;Toggle;2;Key0;Key1;Create;True;False;All;9;1;FLOAT;0;False;0;FLOAT;0;False;2;FLOAT;0;False;3;FLOAT;0;False;4;FLOAT;0;False;5;FLOAT;0;False;6;FLOAT;0;False;7;FLOAT;0;False;8;FLOAT;0;False;1;FLOAT;0
 Node;AmplifyShaderEditor.RangedFloatNode;73;-398.727,-656.2487;Inherit;False;Property;_DT;Time Offset;7;0;Create;False;0;0;0;False;0;False;0;0.48;0;0;0;1;FLOAT;0
 Node;AmplifyShaderEditor.SimpleTimeNode;18;-473.1265,-859.9496;Inherit;False;1;0;FLOAT;1;False;1;FLOAT;0
 Node;AmplifyShaderEditor.SimpleAddOpNode;72;-119.7258,-764.2461;Inherit;False;2;2;0;FLOAT;0;False;1;FLOAT;0;False;1;FLOAT;0
 Node;AmplifyShaderEditor.SimpleDivideOpNode;19;53.38331,-690.3442;Inherit;False;2;0;FLOAT;0;False;1;FLOAT;0;False;1;FLOAT;0
 Node;AmplifyShaderEditor.RangedFloatNode;20;-143.0239,-637.1775;Inherit;False;Property;_Length;Length;1;0;Create;True;0;0;0;False;0;False;0;0.8000001;0;0;0;1;FLOAT;0
-Node;AmplifyShaderEditor.StaticSwitch;75;-294.7616,-887.6093;Inherit;False;Property;_AutoPlay;Auto Play;6;0;Create;False;0;0;0;False;0;False;0;1;1;True;AutoPlay;Toggle;2;Key0;Key1;Create;True;False;All;9;1;FLOAT;0;False;0;FLOAT;0;False;2;FLOAT;0;False;3;FLOAT;0;False;4;FLOAT;0;False;5;FLOAT;0;False;6;FLOAT;0;False;7;FLOAT;0;False;8;FLOAT;0;False;1;FLOAT;0
 Node;AmplifyShaderEditor.TexelSizeNode;16;70.67365,-919.5045;Inherit;False;10;1;0;SAMPLER2D;;False;5;FLOAT4;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
 Node;AmplifyShaderEditor.SamplerNode;28;610.117,-303.9135;Inherit;True;Property;_MainTex;Main Tex;3;0;Create;False;0;0;0;False;0;False;-1;None;7aea49abeff5c054692741636b01ce82;True;0;False;white;Auto;False;Object;-1;Auto;Texture2D;8;0;SAMPLER2D;;False;1;FLOAT2;0,0;False;2;FLOAT;0;False;3;FLOAT2;0,0;False;4;FLOAT2;0,0;False;5;FLOAT;1;False;6;FLOAT;0;False;7;SAMPLERSTATE;;False;5;COLOR;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
-Node;AmplifyShaderEditor.SamplerNode;10;-113.8685,-0.002931833;Inherit;True;Property;_PosTex;Pos Tex;0;0;Create;False;0;0;0;False;0;False;-1;None;None;True;0;False;black;Auto;False;Object;-1;Auto;Texture2D;8;0;SAMPLER2D;;False;1;FLOAT2;0,0;False;2;FLOAT;0;False;3;FLOAT2;0,0;False;4;FLOAT2;0,0;False;5;FLOAT;1;False;6;FLOAT;0;False;7;SAMPLERSTATE;;False;5;COLOR;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
-Node;AmplifyShaderEditor.SamplerNode;27;-108.5107,218.7369;Inherit;True;Property;_NmlTex;Nml Tex;2;0;Create;False;0;0;0;False;0;False;-1;None;None;True;0;False;black;Auto;False;Object;-1;Auto;Texture2D;8;0;SAMPLER2D;;False;1;FLOAT2;0,0;False;2;FLOAT;0;False;3;FLOAT2;0,0;False;4;FLOAT2;0,0;False;5;FLOAT;1;False;6;FLOAT;0;False;7;SAMPLERSTATE;;False;5;COLOR;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
-WireConnection;39;1;35;0
-WireConnection;39;0;31;0
-WireConnection;31;1;33;4
-WireConnection;31;3;30;0
-WireConnection;32;1;34;1
-WireConnection;32;3;36;0
-WireConnection;30;1;33;3
-WireConnection;30;3;32;0
-WireConnection;49;1;33;4
-WireConnection;49;3;51;0
-WireConnection;51;1;33;3
-WireConnection;51;3;50;0
-WireConnection;50;1;34;1
-WireConnection;50;3;52;0
+Node;AmplifyShaderEditor.GetLocalVarNode;36;-15.01779,696.1206;Inherit;False;35;posDiff;1;0;OBJECT;;False;1;COLOR;0
+Node;AmplifyShaderEditor.SimpleMultiplyOpNode;78;230.7795,597.3458;Inherit;False;2;2;0;FLOAT3x3;0,0,0,0,0,1,1,0,1;False;1;COLOR;0,0,0,0;False;1;COLOR;0
+Node;AmplifyShaderEditor.SimpleMultiplyOpNode;79;233.7013,761.0231;Inherit;False;2;2;0;FLOAT3x3;0,0,0,0,1,1,1,0,1;False;1;COLOR;0,0,0,0;False;1;COLOR;0
+Node;AmplifyShaderEditor.GetLocalVarNode;52;-13.6246,843.3538;Inherit;False;43;nmlDiff;1;0;OBJECT;;False;1;COLOR;0
+Node;AmplifyShaderEditor.TextureCoordinatesNode;33;-383.9247,436.308;Inherit;False;0;-1;4;3;2;SAMPLER2D;;False;0;FLOAT2;1,1;False;1;FLOAT2;0,0;False;5;FLOAT4;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
+Node;AmplifyShaderEditor.TextureCoordinatesNode;34;-382.1447,626.8078;Inherit;False;1;-1;2;3;2;SAMPLER2D;;False;0;FLOAT2;1,1;False;1;FLOAT2;0,0;False;5;FLOAT2;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
+Node;AmplifyShaderEditor.SamplerNode;10;-197.7405,-14.91351;Inherit;True;Property;_PosTex;Pos Tex;0;0;Create;False;0;0;0;False;0;False;-1;None;None;True;0;False;black;Auto;False;Object;-1;Auto;Texture2D;8;0;SAMPLER2D;;False;1;FLOAT2;0,0;False;2;FLOAT;0;False;3;FLOAT2;0,0;False;4;FLOAT2;0,0;False;5;FLOAT;1;False;6;FLOAT;0;False;7;SAMPLERSTATE;;False;5;COLOR;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
+Node;AmplifyShaderEditor.SamplerNode;27;-192.3827,203.8264;Inherit;True;Property;_NmlTex;Nml Tex;2;0;Create;False;0;0;0;False;0;False;-1;None;None;True;0;False;black;Auto;False;Object;-1;Auto;Texture2D;8;0;SAMPLER2D;;False;1;FLOAT2;0,0;False;2;FLOAT;0;False;3;FLOAT2;0,0;False;4;FLOAT2;0,0;False;5;FLOAT;1;False;6;FLOAT;0;False;7;SAMPLERSTATE;;False;5;COLOR;0;FLOAT;1;FLOAT;2;FLOAT;3;FLOAT;4
+Node;AmplifyShaderEditor.RegisterLocalVarNode;35;129.4122,-8.000237;Inherit;False;posDiff;-1;True;1;0;COLOR;0,0,0,0;False;1;COLOR;0
+Node;AmplifyShaderEditor.RegisterLocalVarNode;43;130.5287,209.5332;Inherit;False;nmlDiff;-1;True;1;0;COLOR;0,0,0,0;False;1;COLOR;0
+Node;AmplifyShaderEditor.GetLocalVarNode;42;-406.8332,143.1172;Inherit;False;41;sampleUV;1;0;OBJECT;;False;1;FLOAT2;0
+Node;AmplifyShaderEditor.DynamicAppendNode;77;-106.7439,542.0436;Inherit;False;FLOAT3;4;0;FLOAT;0;False;1;FLOAT;0;False;2;FLOAT;0;False;3;FLOAT;0;False;1;FLOAT3;0
+Node;AmplifyShaderEditor.CustomExpressionNode;76;43.58558,550.6918;Inherit;False;  // 計算三個軸的旋轉角度的cos和sin值$  float3 c = cos(eul)@$  float3 s = sin(eul)@$$  // 分別計算三個軸的旋轉矩陣$  float3x3 rotx = float3x3($    1.0f, 0.0f, 0.0f,$    0.0f, c.x, -s.x,$    0.0f, s.x, c.x$    )@$  $  float3x3 roty = float3x3($    c.y, 0.0f, s.y,$    0.0f, 1.0f, 0.0f,$    -s.y, 0.0f ,c.y$    )@$$   float3x3 rotz = float3x3($     c.z , -s.z , 0.0f ,$     s.z , c.z , 0.0f ,$     0.0f , 0.0f ,1.00 $     )@$$   // 根據ZXY(左手)的順序，將三個軸的旋轉矩陣相乘$   return mul(roty , mul(rotx , rotz))@;5;Create;1;True;eul;FLOAT3;0,0,0;In;;Inherit;False;EulerToMatrix;True;False;0;;False;1;0;FLOAT3;0,0,0;False;1;FLOAT3x3;0
+Node;AmplifyShaderEditor.StaticSwitch;71;-38.99004,-1112.109;Inherit;False;Property;_Particle1;Particle;4;0;Create;False;0;0;0;False;0;False;0;0;0;True;_PARTICLE_ON;Toggle;2;Key0;Key1;Reference;39;True;True;All;9;1;FLOAT;0;False;0;FLOAT;0;False;2;FLOAT;0;False;3;FLOAT;0;False;4;FLOAT;0;False;5;FLOAT;0;False;6;FLOAT;0;False;7;FLOAT;0;False;8;FLOAT;0;False;1;FLOAT;0
+Node;AmplifyShaderEditor.StaticSwitch;39;513.3524,151.7929;Inherit;False;Property;_Particle;Particle;4;0;Create;True;0;0;0;False;0;False;0;0;0;True;;Toggle;2;Key0;Key1;Create;True;True;All;9;1;COLOR;0,0,0,0;False;0;COLOR;0,0,0,0;False;2;COLOR;0,0,0,0;False;3;COLOR;0,0,0,0;False;4;COLOR;0,0,0,0;False;5;COLOR;0,0,0,0;False;6;COLOR;0,0,0,0;False;7;COLOR;0,0,0,0;False;8;COLOR;0,0,0,0;False;1;COLOR;0
+Node;AmplifyShaderEditor.StaticSwitch;40;510.5131,-732.6288;Inherit;False;Property;_Loop;Loop;5;0;Create;False;0;0;0;False;0;False;0;1;1;True;ANIM_LOOP;Toggle;2;Key0;Key1;Create;True;False;All;9;1;FLOAT;0;False;0;FLOAT;0;False;2;FLOAT;0;False;3;FLOAT;0;False;4;FLOAT;0;False;5;FLOAT;0;False;6;FLOAT;0;False;7;FLOAT;0;False;8;FLOAT;0;False;1;FLOAT;0
+Node;AmplifyShaderEditor.StaticSwitch;75;-294.7616,-887.6093;Inherit;False;Property;_AutoPlay;Auto Play;6;0;Create;False;0;0;0;False;0;False;0;1;1;True;_AUTO_PLAY;Toggle;2;Key0;Key1;Create;True;False;All;9;1;FLOAT;0;False;0;FLOAT;0;False;2;FLOAT;0;False;3;FLOAT;0;False;4;FLOAT;0;False;5;FLOAT;0;False;6;FLOAT;0;False;7;FLOAT;0;False;8;FLOAT;0;False;1;FLOAT;0
 WireConnection;17;0;15;0
 WireConnection;17;1;16;1
 WireConnection;15;0;71;0
 WireConnection;15;1;22;0
-WireConnection;43;0;27;0
-WireConnection;35;0;10;0
 WireConnection;65;0;45;0
 WireConnection;65;1;66;0
 WireConnection;64;0;65;0
@@ -3979,22 +4013,34 @@ WireConnection;55;0;28;0
 WireConnection;55;8;39;0
 WireConnection;55;10;64;0
 WireConnection;45;1;43;0
-WireConnection;45;0;50;0
-WireConnection;71;1;14;0
-WireConnection;71;0;70;2
+WireConnection;45;0;79;0
 WireConnection;21;0;17;0
 WireConnection;21;1;40;0
 WireConnection;41;0;21;0
 WireConnection;69;0;19;0
 WireConnection;68;0;19;0
-WireConnection;40;1;69;0
-WireConnection;40;0;68;0
 WireConnection;72;0;75;0
 WireConnection;72;1;73;0
 WireConnection;19;0;72;0
 WireConnection;19;1;20;0
-WireConnection;75;0;18;0
+WireConnection;78;0;76;0
+WireConnection;78;1;36;0
+WireConnection;79;0;76;0
+WireConnection;79;1;52;0
 WireConnection;10;1;42;0
 WireConnection;27;1;42;0
+WireConnection;35;0;10;0
+WireConnection;43;0;27;0
+WireConnection;77;0;33;3
+WireConnection;77;1;33;4
+WireConnection;77;2;34;1
+WireConnection;76;0;77;0
+WireConnection;71;1;14;0
+WireConnection;71;0;70;2
+WireConnection;39;1;35;0
+WireConnection;39;0;78;0
+WireConnection;40;1;69;0
+WireConnection;40;0;68;0
+WireConnection;75;0;18;0
 ASEEND*/
-//CHKSM=1A38ACD4E459FD269AAB388AB92FACBE1648903E
+//CHKSM=266E4D10786C9F51DA1CFF2E8EF8F6B629D53993
