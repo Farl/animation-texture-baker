@@ -422,12 +422,12 @@ namespace SS
                             var main = ps.main;
                             main.maxParticles = 2;
                             main.startRotation3D = true;
-                            var rotX = main.startRotationX;
-                            var rotY = main.startRotationY;
-                            var rotZ = main.startRotationZ;
-                            rotX.constantMin = 0; rotX.constantMax = 360;
-                            rotY.constantMin = 0; rotY.constantMax = 360;
-                            rotZ.constantMin = 0; rotZ.constantMax = 360;
+                            main.startRotationXMultiplier = 1f;
+                            main.startRotationYMultiplier = 1f;
+                            main.startRotationZMultiplier = 1f;
+                            main.startRotationX = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2);
+                            main.startRotationY = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2);
+                            main.startRotationZ = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2);
                             var psr = go.GetComponent<ParticleSystemRenderer>();
                             psr.renderMode = ParticleSystemRenderMode.Mesh;
                             psr.mesh = skin.sharedMesh;
